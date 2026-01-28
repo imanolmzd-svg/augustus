@@ -4,8 +4,21 @@ This module generates readable file tree representations.
 No LangChain dependencies - pure Python only.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Tuple
+
+from augustus.utils.ignore import IgnoreSpec, build_ignore_spec, should_ignore
+
+
+@dataclass(frozen=True)
+class FileRecord:
+    """Normalized file record for ingestion."""
+
+    absolute_path: Path
+    relative_path: str
+    size_bytes: int
+    extension: str
 
 
 def generate_tree(
@@ -119,6 +132,93 @@ def _should_ignore(path: Path, ignore_patterns: List[str]) -> bool:
                 return True
     
     return False
+
+
+def collect_files(
+    root_path: Path,
+    ignore_spec: Optional[IgnoreSpec] = None,
+    extra_ignore_patterns: Optional[List[str]] = None,
+) -> Tuple[List[FileRecord], int]:
+    """Collect file records under a root path.
+
+    Args:
+        root_path: Root directory path
+        ignore_spec: Optional ignore spec to reuse
+        extra_ignore_patterns: Additional ignore patterns to apply
+
+    Returns:
+        Tuple of (file_records, ignored_count)
+    """
+    if not root_path.exists() or not root_path.is_dir():
+        return [], 0
+
+    if ignore_spec is None:
+        ignore_spec = build_ignore_spec(root_path, extra_ignore_patterns)
+
+    records: List[FileRecord] = []
+    ignored_count = 0
+    stack = [root_path]
+
+    while stack:
+        current = stack.pop()
+        try:
+            entries = sorted(current.iterdir(), key=lambda p: p.name)
+        except PermissionError:
+            ignored_count += 1
+            continue
+
+        dirs: List[Path] = []
+        for entry in entries:
+            if should_ignore(entry, base_path=root_path, ignore_spec=ignore_spec):
+                ignored_count += 1
+                continue
+
+            if entry.is_dir():
+                dirs.append(entry)
+                continue
+
+            if not entry.is_file():
+                continue
+
+            try:
+                size_bytes = entry.stat().st_size
+            except OSError:
+                ignored_count += 1
+                continue
+
+            try:
+                rel_path = entry.relative_to(root_path).as_posix()
+            except ValueError:
+                rel_path = entry.name
+
+            records.append(
+                FileRecord(
+                    absolute_path=entry.resolve(),
+                    relative_path=rel_path,
+                    size_bytes=size_bytes,
+                    extension=entry.suffix.lower(),
+                )
+            )
+
+        for directory in reversed(dirs):
+            stack.append(directory)
+
+    records.sort(key=lambda record: record.relative_path)
+    return records, ignored_count
+
+
+def list_files(
+    root_path: Path,
+    ignore_spec: Optional[IgnoreSpec] = None,
+    extra_ignore_patterns: Optional[List[str]] = None,
+) -> List[FileRecord]:
+    """Return a normalized, deterministic list of file records."""
+    records, _ = collect_files(
+        root_path,
+        ignore_spec=ignore_spec,
+        extra_ignore_patterns=extra_ignore_patterns,
+    )
+    return records
 
 
 def count_files(

@@ -4,10 +4,13 @@ This module defines the command-line interface using Typer.
 All business logic should be delegated to other modules.
 """
 
+from pathlib import Path
+
 import typer
 from typing_extensions import Annotated
 
 from augustus import __version__
+from augustus.ingest.index import ingest_dry_run
 
 app = typer.Typer(
     name="augustus",
@@ -41,18 +44,35 @@ def main(
 
 
 @app.command()
-def index(
+def ingest(
     path: Annotated[
         str,
-        typer.Argument(help="Path to the folder to index"),
+        typer.Argument(help="Path to the folder to ingest"),
     ] = ".",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print counts without indexing"),
+    ] = False,
+    sample_size: Annotated[
+        int,
+        typer.Option("--sample-size", min=1, help="Sample list size"),
+    ] = 5,
 ) -> None:
-    """Index a folder's contents for semantic search.
-    
-    This command will be implemented in a future step.
-    """
-    typer.echo(f"[Placeholder] Would index: {path}")
-    typer.echo("(Not yet implemented)")
+    """Ingest a folder's contents (dry-run only for now)."""
+    if not dry_run:
+        typer.echo("Ingest without --dry-run is not implemented yet.")
+        raise typer.Exit(code=1)
+
+    summary = ingest_dry_run(Path(path), sample_size=sample_size)
+    typer.echo(f"files discovered: {summary.discovered}")
+    typer.echo(f"ignored: {summary.ignored}")
+    typer.echo(f"loaded: {summary.loaded}")
+    typer.echo("sample files:")
+    if summary.sample_paths:
+        for rel_path in summary.sample_paths:
+            typer.echo(f"- {rel_path}")
+    else:
+        typer.echo("(none)")
 
 
 @app.command()

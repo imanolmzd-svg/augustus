@@ -8,6 +8,8 @@ import fnmatch
 from pathlib import Path
 from typing import List, Optional
 
+from augustus.config import DEFAULT_IGNORE_PATTERNS
+
 
 class IgnoreSpec:
     """Handles gitignore-style ignore patterns.
@@ -171,3 +173,49 @@ def merge_patterns(
                 merged.append(pattern)
     
     return merged
+
+
+def build_ignore_spec(
+    base_path: Optional[Path] = None,
+    extra_patterns: Optional[List[str]] = None,
+) -> IgnoreSpec:
+    """Build an IgnoreSpec from defaults and optional .gitignore.
+
+    Args:
+        base_path: Base directory for .gitignore lookup
+        extra_patterns: Additional patterns to include
+
+    Returns:
+        IgnoreSpec configured with merged patterns
+    """
+    patterns = merge_patterns(DEFAULT_IGNORE_PATTERNS, extra_patterns)
+
+    if base_path is not None:
+        gitignore_path = base_path / ".gitignore"
+        gitignore_patterns = load_gitignore(gitignore_path)
+        patterns = merge_patterns(patterns, gitignore_patterns)
+
+    return IgnoreSpec(patterns)
+
+
+def should_ignore(
+    path: Path,
+    base_path: Optional[Path] = None,
+    ignore_spec: Optional[IgnoreSpec] = None,
+    extra_patterns: Optional[List[str]] = None,
+) -> bool:
+    """Check if a path should be ignored.
+
+    Args:
+        path: Path to evaluate
+        base_path: Base directory for relative matching
+        ignore_spec: Optional IgnoreSpec to reuse
+        extra_patterns: Additional patterns to include if ignore_spec not given
+
+    Returns:
+        True if the path should be ignored
+    """
+    if ignore_spec is None:
+        ignore_spec = build_ignore_spec(base_path, extra_patterns)
+
+    return ignore_spec.should_ignore(path, base_path=base_path)
